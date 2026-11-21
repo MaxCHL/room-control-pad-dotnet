@@ -33,6 +33,13 @@ public sealed class GuestServicesService
     private Task OnServiceOrderAsync(string topic, string payload, CancellationToken ct)
     {
         var request = JsonSerializer.Deserialize<GuestServiceRequest>(payload);
+        if (request is null || request.RoomId != RoomTopics.RoomIdOf(topic))
+        {
+            // A room may only act for itself: the payload's RoomId must match the topic's room.
+            Console.WriteLine($"  [WARN] GuestServicesService 忽略房號與主題不符的請求（topic={topic}）。");
+            return Task.CompletedTask;
+        }
+
         return request is HousekeepingRequest housekeeping ? HandleAsync(housekeeping, ct) : Task.CompletedTask;
     }
 

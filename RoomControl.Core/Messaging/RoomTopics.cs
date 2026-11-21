@@ -30,6 +30,14 @@ public static class RoomTopics
     public static string ServiceOrderWildcard => "room/+/service/order";
     public static string ServiceNotify(string roomId) => $"room/{roomId}/service/notify";
 
+    /// <summary>Room id from a <c>room/{roomId}/...</c> topic, or null for any other topic. Services use it
+    /// to check that a request's RoomId matches the topic it arrived on (a room may only act for itself).</summary>
+    public static string? RoomIdOf(string topic)
+    {
+        var parts = topic.Split('/');
+        return parts.Length >= 3 && parts[0] == "room" && parts[1].Length > 0 ? parts[1] : null;
+    }
+
     // --- Delivery robots ---
     public static string RobotStatus(string robotId) => $"robot/{robotId}/status";
     public static string RobotStatusWildcard => "robot/+/status";

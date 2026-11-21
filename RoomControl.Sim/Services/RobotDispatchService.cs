@@ -36,8 +36,8 @@ public sealed class RobotDispatchService
     // duplicate is retried once in the background. Once accepted, later notification/delivery failures
     // are NOT retried by a redelivery: the pipeline owns the order and a retry would double-book a
     // robot. In-memory only and unbounded.
-    private readonly IdempotencyGate<string> _orderAcceptance = new((requestId, ex) =>
-        Console.WriteLine($"  [ERROR] RobotDispatchService 背景重試訂單 {requestId} 失敗（受理或之後的送餐流程）：{ex.GetBaseException().Message}"));
+    private readonly IdempotencyGate<(string RoomId, string RequestId)> _orderAcceptance = new((key, ex) =>
+        Console.WriteLine($"  [ERROR] RobotDispatchService 背景重試訂單 {key.RequestId} 失敗（受理或之後的送餐流程）：{ex.GetBaseException().Message}"));
 
     // Serializes "find an idle robot and reserve it" / "robot freed up, hand off to next
     // queued order or go Idle" so the two decisions can never race each other or double-book
@@ -70,6 +70,13 @@ public sealed class RobotDispatchService
     private Task OnServiceOrderAsync(string topic, string payload, CancellationToken ct)
     {
         var request = JsonSerializer.Deserialize<GuestServiceRequest>(payload);
+        if (request is null || request.RoomId != RoomTopics.RoomIdOf(topic))
+        {
+            // A room may only act for itself: the payload's RoomId must match the topic's room.
+            Console.WriteLine($"  [WARN] RobotDispatchService 忽略房號與主題不符的請求（topic={topic}）。");
+            return Task.CompletedTask;
+        }
+
         switch (request)
         {
             case FoodOrderRequest food:
@@ -91,9 +98,17 @@ public sealed class RobotDispatchService
 
     private async Task HandleFoodOrderAsync(FoodOrderRequest request, CancellationToken ct)
     {
+        if (_orders.TryGetValue(request.RequestId, out var other) && other.RoomId != request.RoomId)
+        {
+            // shortcut: order ids are the client's RequestId; a clash with another room's order is rejected here
+            // (production would issue server-side unguessable order ids).
+            Console.WriteLine($"  [WARN] RobotDispatchService 忽略與其他房間訂單編號衝突的訂單 {request.RequestId}。");
+            return;
+        }
+
         FoodOrder? order = null;
         string? robotId = null;
-        var accepted = await _orderAcceptance.RunOnceAsync(request.RequestId,
+        var accepted = await _orderAcceptance.RunOnceAsync((request.RoomId, request.RequestId),
             work: async () => { (order, robotId) = await AcceptOrderAsync(request, ct).ConfigureAwait(false); },
             retry: () => HandleFoodOrderAsync(request, CancellationToken.None)).ConfigureAwait(false);
 
@@ -241,6 +256,13 @@ public sealed class RobotDispatchService
 
     private void HandleConfirmPickup(ConfirmPickupRequest request)
     {
+        // Only the room that placed the order may confirm its pickup.
+        if (!_orders.TryGetValue(request.OrderId, out var order) || order.RoomId != request.RoomId)
+        {
+            Console.WriteLine($"  [WARN] RobotDispatchService 拒絕非下單房間的取餐確認（訂單 {request.OrderId}，房間 {request.RoomId}）。");
+            return;
+        }
+
         if (_pickupSignals.TryGetValue(request.OrderId, out var signal))
         {
             signal.TrySetResult();

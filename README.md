@@ -211,6 +211,7 @@ RoomControl.Sim/               # 模擬實作 + Demo 入口
 | MQTT broker | 記憶體內的 `InMemoryMessageBus` | 真實 broker（如 EMQX / Mosquitto），Pad/Gateway/後端各自是獨立 process 透過網路連線 |
 | 裝置層 | `SimulatedDeviceDriver` 純記憶體狀態機 | Zigbee 協調器、DALI 閘道器、IR/CEC 控制器、KNX/Modbus 閘道器等實體介面 |
 | QoS/重送 | 應用層以 CommandId 冪等模擬，bus 本身不做真正重送 | Broker 端真正實作 QoS1（至少一次，可能重複）與封包重送，應用層冪等仍然必要 |
+| 房間隔離 | 服務只接受「payload 房號與主題房號一致」的請求，取餐確認只限下單的房間 | 由 broker ACL 限制每台 Pad 只能發佈／訂閱自己房間的主題，並由伺服器產生不可猜測的訂單編號 |
 | 冪等紀錄 | 各服務與 Gateway 的去重紀錄存在記憶體內，且不設上限、不淘汰。房務請求與送餐受理失敗時會移除紀錄，讓重送重試；處理中的重複請求立即返回，若第一次失敗則在背景代為重試一次（之後仍失敗就只記錄，需用戶端重送）。Gateway 則會快取失敗的裝置／情境 ACK，同一個 CommandId 重送時直接回覆該 ACK | 使用共用儲存（如 Redis 並設定到期時間），TTL 需涵蓋 broker 的重送窗口，避免記憶體無限成長 |
 | 時間 | 以短暫 `Task.Delay` 模擬移動/等待時間 | 真實電梯/走廊移動時間、真實廚房準備時間 |
 

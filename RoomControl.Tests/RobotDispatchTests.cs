@@ -218,4 +218,40 @@ public class RobotDispatchTests
         Assert.Single(log.Notifications, n => n.OrderStatus == OrderStatus.Placed);
         Assert.Single(log.Notifications, n => n.OrderStatus == OrderStatus.Delivered);
     }
+
+    [Fact]
+    public async Task Another_room_cannot_confirm_pickup_of_an_order()
+    {
+        var (bus, robotStatus) = await StartAsync(["bot-1"], TimeSpan.FromMilliseconds(300));
+        var log = await OrderLog.AttachAsync(bus, "R101", confirmOnArrival: false);
+        await bus.SubscribeAsync(RoomTopics.ServiceNotify("R101"), async (_, payload, _) =>
+        {
+            var n = JsonSerializer.Deserialize<ServiceNotification>(payload)!;
+            if (n.OrderStatus == OrderStatus.ArrivedAtDoor)
+            {
+                // Room R102 tries to confirm R101's order, on its own topic.
+                await bus.PublishAsync(RoomTopics.ServiceOrder("R102"), JsonSerializer.Serialize<GuestServiceRequest>(
+                    new ConfirmPickupRequest { RequestId = "c-1", RoomId = "R102", RequestedAtUtc = DateTimeOffset.UtcNow, OrderId = n.OrderId! }));
+            }
+        }, TestContext.Current.CancellationToken);
+
+        await SendAsync(bus, Order("order-1"));
+        await TestSupport.WaitUntilAsync(() => log.HasStatus("order-1", OrderStatus.TimedOutReturning) && RobotBackToIdle(robotStatus, "bot-1"), "timeout and robot idle");
+
+        Assert.False(log.HasStatus("order-1", OrderStatus.Delivered));
+    }
+
+    [Fact]
+    public async Task Request_whose_room_does_not_match_its_topic_is_ignored()
+    {
+        var (bus, _) = await StartAsync(["bot-1"], TimeSpan.FromMilliseconds(100));
+        var log = await OrderLog.AttachAsync(bus, "R101", confirmOnArrival: true);
+
+        // Payload claims R101 but arrives on R102's topic.
+        await bus.PublishAsync(RoomTopics.ServiceOrder("R102"), JsonSerializer.Serialize<GuestServiceRequest>(Order("order-x")),
+            ct: TestContext.Current.CancellationToken);
+        await Task.Delay(400, TestContext.Current.CancellationToken);
+
+        Assert.Empty(log.Notifications);
+    }
 }
