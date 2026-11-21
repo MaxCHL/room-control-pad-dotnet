@@ -1,0 +1,29 @@
+# ---- .NET build output ----
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+
+# ---- .NET / NuGet ----
+*.user
+*.suo
+*.userprefs
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.nupkg
+*.snupkg
+
+# ---- IDE / editor ----
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
